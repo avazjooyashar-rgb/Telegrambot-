@@ -77,5 +77,5 @@ def handle(m):
         print(e)
         bot.send_message(m.chat.id, "❌ خطا در ارسال فایل")
 
+bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=20)
 
-bot.infinity_polling(timeout=60, long_polling_timeout=60)
