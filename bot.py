@@ -1,7 +1,6 @@
 import telebot
 import yt_dlp
 import os
-import requests
 
 TOKEN = "8551612297:AAHnXsshYfx35qTRTxu9IXChmY34HxU2Mfk"
 bot = telebot.TeleBot(TOKEN)
@@ -13,8 +12,7 @@ user_links = {}
 def start(message):
     bot.send_message(
         message.chat.id,
-        "🎧 به واتس موزیک خوش آمدید\n\n"
-        "📩 لینک ریلز یا پست اینستاگرام را ارسال کنید"
+        "🎧 به واتس موزیک خوش آمدید\n\n📩 لینک ریلز یا پست اینستاگرام را ارسال کنید"
     )
 
 # ================= دریافت لینک =================
@@ -24,14 +22,13 @@ def handle(message):
     chat_id = message.chat.id
 
     user_links[chat_id] = url
-
     bot.send_message(chat_id, "⏳ در حال دانلود ویدیو...")
 
     video_path = f"{chat_id}.mp4"
 
     try:
         ydl_opts = {
-            'outtmpl': video_path,
+            'outtmpl': f'{chat_id}.%(ext)s',
             'format': 'bv*+ba/b',
             'merge_output_format': 'mp4'
         }
@@ -39,7 +36,6 @@ def handle(message):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-        # ارسال ویدیو
         markup = telebot.types.InlineKeyboardMarkup()
         btn = telebot.types.InlineKeyboardButton(
             "🎵 پیدا کردن آهنگ",
@@ -68,28 +64,20 @@ def find_music(call):
     audio_clip = f"{chat_id}_clip.mp3"
 
     try:
-        # 🔥 فقط 2 ثانیه صدا (از ثانیه 1)
+        # استخراج 2 ثانیه صدا
         os.system(f"ffmpeg -y -ss 00:00:01 -t 2 -i {video_file} {audio_clip}")
 
-        # =======================
-        # 🎧 شبیه‌سازی تشخیص آهنگ
-        # (اینجا باید API واقعی مثل ACRCloud بزنی)
-        # =======================
-
-        # برای دمو (اسم فرضی)
+        # شبیه‌سازی تشخیص آهنگ
         song_name = "test song"
         artist = "unknown artist"
-
         query = f"{song_name} {artist}"
 
-        bot.send_message(chat_id, f"🔍 آهنگ پیدا شد:\n{query}\n⏳ در حال دانلود نسخه کامل...")
+        bot.send_message(chat_id, f"🔍 آهنگ پیدا شد:\n{query}\n⏳ در حال دانلود...")
 
-        # دانلود آهنگ کامل از یوتیوب
-        audio_file = f"{chat_id}_full.mp3"
-
+        # دانلود آهنگ کامل
         ydl_opts = {
             'format': 'bestaudio/best',
-            'outtmpl': audio_file,
+            'outtmpl': f'{chat_id}_full.%(ext)s',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -100,11 +88,12 @@ def find_music(call):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([f"ytsearch1:{query}"])
 
-        bot.send_audio(chat_id, open(audio_file, "rb"))
+        final_audio = f"{chat_id}_full.mp3"
+        bot.send_audio(chat_id, open(final_audio, "rb"))
 
         # پاکسازی
         os.remove(audio_clip)
-        os.remove(audio_file)
+        os.remove(final_audio)
 
     except Exception as e:
         bot.send_message(chat_id, f"❌ خطا: {e}")
