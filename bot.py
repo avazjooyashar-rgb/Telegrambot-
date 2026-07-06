@@ -1,122 +1,83 @@
-import telebot
-import yt_dlp
 import os
-import requests
-import uuid
-import subprocess
+import telebot
 
-TOKEN = "8551612297:AAHnXsshYfx35qTRTxu9IXChmY34HxU2Mfk"
-API_KEY = "2e53b0ad8352f400058497cd4854237e"
+from config import *
+from utils import RateLimiter, safe_remove
+from queue_manager import TaskQueue
+from downloader import download_instagram, extract_audio, download_music
+from recognizer import recognize_audio
 
-bot = telebot.TeleBot(TOKEN)
+os.makedirs(BASE_DIR, exist_ok=True)
 
-# ================= START =================
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.send_message(
-        message.chat.id,
-        "🎧 ربات آماده است\n📩 لینک اینستاگرام را ارسال کنید"
-    )
+bot = telebot.TeleBot(TOKEN, threaded=True)
+limiter = RateLimiter(RATE_LIMIT_SEC)
 
-# ================= MAIN HANDLER =================
-@bot.message_handler(func=lambda m: True)
-def handle(message):
-    chat_id = message.chat.id
-    url = message.text.strip()
 
-    bot.send_message(chat_id, "⏳ در حال دانلود ویدیو...")
+def send_safe(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except:
+        pass
 
-    uid = str(uuid.uuid4())
-    video_path = f"/tmp/{chat_id}_{uid}.mp4"
-    audio_path = f"/tmp/{chat_id}_{uid}.mp3"
+
+def process(chat_id, url):
+    send_safe(bot.send_message, chat_id, "⚡ در حال پردازش...")
 
     try:
-        # ===== Download Instagram Video =====
-        ydl_opts = {
-            'outtmpl': video_path,
-            'format': 'bestvideo+bestaudio/best',
-            'merge_output_format': 'mp4',
-            'noplaylist': True,
-            'cachedir': False
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-
-        if not os.path.exists(video_path):
-            bot.send_message(chat_id, "❌ دانلود ناموفق بود")
-            return
-
-        # send video
-        bot.send_video(chat_id, open(video_path, "rb"))
-
-        bot.send_message(chat_id, "🎧 در حال تشخیص آهنگ...")
-
-        # ===== extract short audio for recognition =====
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", video_path, "-vn", "-t", "10", audio_path],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-
-        # ===== AudD recognition =====
-        with open(audio_path, "rb") as f:
-            res = requests.post(
-                "https://api.audd.io/",
-                data={"api_token": API_KEY},
-                files={"file": f}
-            )
-
-        data = res.json()
-
-        if not data.get("result"):
-            bot.send_message(chat_id, "❌ آهنگ پیدا نشد")
-            cleanup(video_path, audio_path)
-            return
-
-        artist = data["result"]["artist"]
-        title = data["result"]["title"]
-
-        query = f"{artist} - {title} official audio"
-
-        bot.send_message(chat_id, f"🎵 پیدا شد:\n{query}\n🎧 در حال دانلود آهنگ کامل...")
-
-        # ===== download full song =====
-        audio_out = f"/tmp/{chat_id}_{uid}_full.mp3"
-
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': audio_out,
-            'noplaylist': True,
-            'cachedir': False,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }]
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([f"ytsearch1:{query}"])
-
-        if os.path.exists(audio_out):
-            bot.send_audio(chat_id, open(audio_out, "rb"))
-        else:
-            bot.send_message(chat_id, "❌ دانلود آهنگ کامل ناموفق بود")
-
-        cleanup(video_path, audio_path, audio_out)
-
+        video = download_instagram(url, BASE_DIR)
     except Exception as e:
-        bot.send_message(chat_id, f"❌ خطا: {e}")
+        return send_safe(bot.send_message, chat_id, f"❌ دانلود خطا: {e}")
 
-# ================= CLEANUP =================
-def cleanup(*files):
-    for f in files:
-        try:
-            if f and os.path.exists(f):
-                os.remove(f)
-        except:
-            pass
+    try:
+        with open(video, "rb") as f:
+            bot.send_video(chat_id, f)
+    except:
+        pass
 
-# ================= RUN =================
-bot.polling(none_stop=True, timeout=60)
+    audio = extract_audio(video)
+
+    result = recognize_audio(audio)
+
+    if not result:
+        return send_safe(bot.send_message, chat_id, "❌ آهنگ پیدا نشد")
+
+    artist, title = result
+    send_safe(bot.send_message, chat_id, f"🎵 {artist} - {title}")
+
+    music = download_music(f"{artist} {title}", BASE_DIR)
+
+    try:
+        with open(music, "rb") as f:
+            bot.send_audio(chat_id, f)
+    except:
+        pass
+
+    safe_remove(video)
+    safe_remove(audio)
+    safe_remove(music)
+
+
+queue = TaskQueue(WORKERS, process)
+
+
+@bot.message_handler(commands=["start"])
+def start(m):
+    bot.send_message(m.chat.id, "🚀 INSTAGRAM MUSIC BOT READY")
+
+
+@bot.message_handler(func=lambda m: True)
+def handler(m):
+    if not m.text:
+        return
+
+    if not limiter.allow(m.from_user.id):
+        return bot.send_message(m.chat.id, "⛔ slow down")
+
+    if "http" not in m.text:
+        return bot.send_message(m.chat.id, "📎 فقط لینک اینستا بفرست")
+
+    queue.add((m.chat.id, m.text))
+
+
+print("BOT RUNNING...")
+bot.infinity_polling(skip_pending=True)
