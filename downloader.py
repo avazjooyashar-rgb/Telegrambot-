@@ -3,7 +3,6 @@ import uuid
 import subprocess
 import yt_dlp
 import logging
-import math
 
 
 logging.basicConfig(
@@ -13,17 +12,17 @@ logging.basicConfig(
 )
 
 
-# =========================
-# VIDEO DOWNLOAD
-# =========================
 
 def download_instagram(url, base_dir):
 
-    os.makedirs(base_dir, exist_ok=True)
+    os.makedirs(
+        base_dir,
+        exist_ok=True
+    )
 
     uid = str(uuid.uuid4())
 
-    out = os.path.join(
+    output = os.path.join(
         base_dir,
         f"{uid}.%(ext)s"
     )
@@ -31,35 +30,27 @@ def download_instagram(url, base_dir):
 
     options = {
 
-        "outtmpl": out,
+        "outtmpl": output,
 
-        "format":
-        "bv*+ba/best",
+        "format": "bv*+ba/best",
 
-        "merge_output_format":
-        "mp4",
+        "merge_output_format": "mp4",
 
-        "noplaylist":
-        True,
+        "noplaylist": True,
 
-        "quiet":
-        True,
+        "quiet": True,
 
-        "no_warnings":
-        True,
+        "no_warnings": True,
 
-        "retries":
-        15,
+        "retries": 15,
 
-        "fragment_retries":
-        15,
+        "fragment_retries": 15,
 
-        "socket_timeout":
-        60,
+        "socket_timeout": 60,
 
-        "concurrent_fragment_downloads":
-        5
+        "concurrent_fragment_downloads": 5
     }
+
 
 
     try:
@@ -92,9 +83,7 @@ def download_instagram(url, base_dir):
 
 
 
-# =========================
-# VIDEO DURATION
-# =========================
+
 
 def get_duration(path):
 
@@ -122,15 +111,13 @@ def get_duration(path):
         )
 
 
-    except Exception:
+    except:
 
         return 60
 
 
 
-# =========================
-# AUDIO EXTRACTION
-# =========================
+
 
 def extract_audio(video_path):
 
@@ -148,14 +135,9 @@ def extract_audio(video_path):
     segment = 25
 
 
-    points = set()
+    points = [0]
 
 
-    # شروع ویدیو
-    points.add(0)
-
-
-    # نقاط هوشمند
     if duration > segment:
 
         step = max(
@@ -168,28 +150,24 @@ def extract_audio(video_path):
 
         while current < duration:
 
-            points.add(
-                max(
-                    0,
-                    current
-                )
+            points.append(
+                int(current)
             )
 
             current += step
 
 
 
-    # آخر ویدیو
-    points.add(
+    points.append(
         max(
             0,
-            duration - segment
+            int(duration - segment)
         )
     )
 
 
     points = sorted(
-        list(points)
+        set(points)
     )
 
 
@@ -211,9 +189,7 @@ def extract_audio(video_path):
                     "-y",
 
                     "-ss",
-                    str(
-                        int(start)
-                    ),
+                    str(start),
 
                     "-i",
                     video_path,
@@ -230,7 +206,7 @@ def extract_audio(video_path):
                     "44100",
 
                     "-af",
-                    "highpass=f=80,lowpass=f=8000,afftdn,loudnorm,silenceremove=start_periods=1:start_silence=0.3:start_threshold=-45dB"
+                    "highpass=f=80,lowpass=f=8000,afftdn,loudnorm,silenceremove=start_periods=1:start_silence=0.3:start_threshold=-45dB",
 
                     "-c:a",
                     "pcm_s16le",
@@ -244,15 +220,16 @@ def extract_audio(video_path):
             )
 
 
+
             if (
                 os.path.exists(audio)
-                and
-                os.path.getsize(audio) > 20000
+                and os.path.getsize(audio) > 20000
             ):
 
                 files.append(
                     audio
                 )
+
 
 
         except Exception as e:
@@ -262,4 +239,61 @@ def extract_audio(video_path):
             )
 
 
+
     return files
+
+
+
+
+
+def download_music(query, base_dir):
+
+    os.makedirs(
+        base_dir,
+        exist_ok=True
+    )
+
+
+    uid = str(uuid.uuid4())
+
+
+    output = os.path.join(
+        base_dir,
+        f"{uid}.mp3"
+    )
+
+
+    options = {
+
+        "format": "bestaudio/best",
+
+        "outtmpl": output,
+
+        "quiet": True,
+
+        "noplaylist": True,
+
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3"
+            }
+        ]
+    }
+
+
+
+    try:
+
+        with yt_dlp.YoutubeDL(options) as ydl:
+
+            ydl.download(
+                [
+                    f"ytsearch1:{query}"
+                ]
+            )
+
+
+        for f in os.listdir(base_dir):
+
+            if f.startswith
