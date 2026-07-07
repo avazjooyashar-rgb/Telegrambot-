@@ -2,6 +2,8 @@ import os
 import telebot
 import traceback
 
+from telebot import types
+import urllib.parse
 from config import *
 from utils import RateLimiter, safe_remove
 from queue_manager import TaskQueue
