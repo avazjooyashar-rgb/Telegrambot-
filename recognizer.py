@@ -3,9 +3,11 @@ import os
 import json
 import hashlib
 import logging
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import AUDD_API
+from audio_processor import prepare_audio
 
 
 logging.basicConfig(
@@ -24,9 +26,11 @@ def load_cache():
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-    except:
-        pass
+    except Exception as e:
+        logging.error(e)
+
     return {}
+
 
 
 def save_cache(data):
@@ -38,26 +42,35 @@ def save_cache(data):
                 ensure_ascii=False,
                 indent=2
             )
+
     except Exception as e:
         logging.error(e)
+
 
 
 def file_hash(path):
     try:
         h = hashlib.md5()
+
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 h.update(chunk)
+
         return h.hexdigest()
-    except:
+
+    except Exception:
         return None
 
 
+
 def valid_audio(path):
+
     return (
-        os.path.exists(path)
+        path
+        and os.path.exists(path)
         and os.path.getsize(path) > 10000
     )
+
 
 
 def audd_request(path):
@@ -66,7 +79,7 @@ def audd_request(path):
 
         with open(path, "rb") as audio:
 
-            r = requests.post(
+            response = requests.post(
                 AUDD_URL,
 
                 data={
@@ -82,13 +95,15 @@ def audd_request(path):
             )
 
 
-        if r.status_code == 200:
-            return r.json()
+        if response.status_code == 200:
+            return response.json()
+
 
     except Exception as e:
         logging.error(
-            f"AUDD {e}"
+            f"AUDD ERROR: {e}"
         )
+
 
     return None
 
@@ -100,6 +115,7 @@ def parse(data):
 
         if not data:
             return None
+
 
         result = data.get("result")
 
@@ -122,8 +138,8 @@ def parse(data):
             }
 
 
-    except:
-        pass
+    except Exception as e:
+        logging.error(e)
 
 
     return None
@@ -136,56 +152,66 @@ def recognize_audio(paths):
         paths = [paths]
 
 
-    files = [
-        x for x in paths
-        if valid_audio(x)
-    ]
+    # آماده سازی فایل‌ها
+    processed = []
+
+    for item in paths:
+
+        ready = prepare_audio(item)
+
+        if valid_audio(ready):
+            processed.append(ready)
 
 
-    if not files:
+    if not processed:
         return None
 
 
     cache = load_cache()
 
 
-    for f in files:
+    for file in processed:
 
-        h = file_hash(f)
+        h = file_hash(file)
 
-        if h in cache:
+        if h and h in cache:
+
             logging.info("CACHE HIT")
+
             return cache[h]
 
 
 
-    # چند نمونه همزمان بررسی می‌شوند
     with ThreadPoolExecutor(
-        max_workers=min(3, len(files))
-    ) as ex:
+        max_workers=min(3, len(processed))
+    ) as executor:
 
 
-        jobs = [
-            ex.submit(
+        tasks = {
+            executor.submit(
                 audd_request,
-                f
-            )
-            for f in files
-        ]
+                file
+            ): file
+
+            for file in processed
+        }
 
 
-        for job in as_completed(jobs):
+        for task in as_completed(tasks):
+
+            source_file = tasks[task]
 
             result = parse(
-                job.result()
+                task.result()
             )
 
 
             if result:
 
-                h = file_hash(files[0])
+                h = file_hash(source_file)
 
                 if h:
+
                     cache[h] = result
                     save_cache(cache)
 
@@ -194,7 +220,11 @@ def recognize_audio(paths):
                     f"FOUND {result}"
                 )
 
+
                 return result
 
+
+
+    logging.info("NOT FOUND")
 
     return None
