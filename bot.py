@@ -12,7 +12,10 @@ from recognizer import recognize_audio
 from music_links import build_links
 
 
-os.makedirs(BASE_DIR, exist_ok=True)
+os.makedirs(
+    BASE_DIR,
+    exist_ok=True
+)
 
 
 bot = telebot.TeleBot(
@@ -26,11 +29,21 @@ limiter = RateLimiter(
 )
 
 
+
 def send_safe(func, *args, **kwargs):
+
     try:
-        return func(*args, **kwargs)
+        return func(
+            *args,
+            **kwargs
+        )
+
     except Exception as e:
-        print("SEND ERROR:", e)
+
+        print(
+            "SEND ERROR:",
+            e
+        )
 
 
 
@@ -39,53 +52,23 @@ def cleanup(files):
     if not files:
         return
 
-    if isinstance(files, str):
+    if isinstance(
+        files,
+        str
+    ):
+
         files = [files]
 
+
     for f in files:
+
         try:
             safe_remove(f)
+
         except:
             pass
 
 
-
-def create_keyboard(result):
-
-    links = build_links(result)
-
-    keyboard = types.InlineKeyboardMarkup()
-
-
-    keyboard.add(
-        types.InlineKeyboardButton(
-            "🔎 جستجوی آهنگ",
-            url=links["google"]
-        )
-    )
-
-
-    keyboard.add(
-        types.InlineKeyboardButton(
-            "▶️ YouTube",
-            url=links["youtube"]
-        ),
-        types.InlineKeyboardButton(
-            "🎧 Spotify",
-            url=links["spotify"]
-        )
-    )
-
-
-    keyboard.add(
-        types.InlineKeyboardButton(
-            "🍎 Apple Music",
-            url=links["apple_music"]
-        )
-    )
-
-
-    return keyboard
 
 
 
@@ -105,6 +88,7 @@ def process(chat_id, url):
 
     try:
 
+
         video = download_instagram(
             url,
             BASE_DIR
@@ -116,25 +100,27 @@ def process(chat_id, url):
             return send_safe(
                 bot.send_message,
                 chat_id,
-                "❌ دانلود نشد"
+                "❌ دانلود ویدیو ناموفق بود"
             )
+
 
 
         try:
 
-            with open(video, "rb") as f:
+            with open(
+                video,
+                "rb"
+            ) as f:
 
                 bot.send_video(
                     chat_id,
                     f
                 )
 
-        except Exception as e:
+        except Exception:
 
-            print(
-                "VIDEO SEND:",
-                e
-            )
+            pass
+
 
 
 
@@ -148,7 +134,7 @@ def process(chat_id, url):
             return send_safe(
                 bot.send_message,
                 chat_id,
-                "❌ صدا استخراج نشد"
+                "❌ استخراج صدا انجام نشد"
             )
 
 
@@ -180,9 +166,47 @@ def process(chat_id, url):
         )
 
 
-        keyboard = create_keyboard(
+
+        links = build_links(
             result
         )
+
+
+
+        keyboard = types.InlineKeyboardMarkup()
+
+
+
+        keyboard.add(
+            types.InlineKeyboardButton(
+                "🔎 جستجوی آهنگ",
+                url=links["google"]
+            )
+        )
+
+
+
+        keyboard.add(
+            types.InlineKeyboardButton(
+                "▶️ YouTube",
+                url=links["youtube"]
+            ),
+
+            types.InlineKeyboardButton(
+                "🎧 Spotify",
+                url=links["spotify"]
+            )
+        )
+
+
+
+        keyboard.add(
+            types.InlineKeyboardButton(
+                "🍎 Apple Music",
+                url=links["apple_music"]
+            )
+        )
+
 
 
         send_safe(
@@ -200,17 +224,33 @@ def process(chat_id, url):
         )
 
 
+
         if music:
 
-            with open(music, "rb") as f:
+            try:
 
-                bot.send_audio(
-                    chat_id,
-                    f
+                with open(
+                    music,
+                    "rb"
+                ) as f:
+
+                    bot.send_audio(
+                        chat_id,
+                        f
+                    )
+
+
+            except Exception as e:
+
+                print(
+                    "AUDIO SEND ERROR:",
+                    e
                 )
 
 
+
     except Exception as e:
+
 
         print(
             traceback.format_exc()
@@ -224,11 +264,15 @@ def process(chat_id, url):
         )
 
 
+
     finally:
 
         cleanup(video)
         cleanup(audio)
         cleanup(music)
+
+
+
 
 
 
@@ -239,53 +283,68 @@ queue = TaskQueue(
 
 
 
-@bot.message_handler(commands=["start"])
-def start(m):
+
+
+@bot.message_handler(
+    commands=["start"]
+)
+def start(message):
 
     bot.send_message(
-        m.chat.id,
+        message.chat.id,
         "🚀 INSTAGRAM MUSIC BOT READY"
     )
 
 
 
-@bot.message_handler(func=lambda m: True)
-def handler(m):
 
-    if not m.text:
+
+@bot.message_handler(
+    func=lambda m: True
+)
+def handler(message):
+
+
+    if not message.text:
+
         return
 
 
+
     if not limiter.allow(
-        m.from_user.id
+        message.from_user.id
     ):
 
         return bot.send_message(
-            m.chat.id,
+            message.chat.id,
             "⛔ slow down"
         )
 
 
 
-    if "http" not in m.text:
+    if "http" not in message.text:
 
         return bot.send_message(
-            m.chat.id,
-            "📎 فقط لینک بفرست"
+            message.chat.id,
+            "📎 فقط لینک اینستا بفرست"
         )
 
 
 
     queue.add(
         (
-            m.chat.id,
-            m.text
+            message.chat.id,
+            message.text
         )
     )
 
 
 
-print("BOT RUNNING...")
+
+
+print(
+    "BOT RUNNING..."
+)
 
 
 bot.infinity_polling()
