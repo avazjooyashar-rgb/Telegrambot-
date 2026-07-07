@@ -19,7 +19,7 @@ def valid_audio(path):
     try:
         return (
             os.path.exists(path)
-            and os.path.getsize(path) > 8000
+            and os.path.getsize(path) > 15000
         )
     except:
         return False
@@ -29,27 +29,41 @@ def valid_audio(path):
 def audd_request(path):
 
     try:
+
         with open(path, "rb") as audio:
 
-            r = requests.post(
+            response = requests.post(
                 AUDD_URL,
+
                 data={
                     "api_token": AUDD_API,
                     "return": "spotify,apple_music"
                 },
+
                 files={
                     "file": audio
                 },
+
                 timeout=60
             )
 
-        if r.status_code != 200:
+
+        if response.status_code != 200:
+            logging.warning(
+                f"HTTP ERROR {response.status_code}"
+            )
             return None
 
-        return r.json()
+
+        return response.json()
+
 
     except Exception as e:
-        logging.error(f"REQUEST ERROR: {e}")
+
+        logging.error(
+            f"AUDD REQUEST ERROR: {e}"
+        )
+
         return None
 
 
@@ -61,17 +75,27 @@ def extract_result(data):
         if not data:
             return None
 
+
         if data.get("status") != "success":
             return None
 
-        result = data.get("result")
+
+        result = data.get(
+            "result"
+        )
+
 
         if not result:
             return None
 
 
-        artist = result.get("artist")
-        title = result.get("title")
+        artist = result.get(
+            "artist"
+        )
+
+        title = result.get(
+            "title"
+        )
 
 
         if not artist or not title:
@@ -79,72 +103,113 @@ def extract_result(data):
 
 
         return {
+
             "artist": artist,
+
             "title": title,
-            "album": result.get("album"),
-            "release_date": result.get("release_date"),
-            "spotify": result.get("spotify"),
-            "apple_music": result.get("apple_music")
+
+            "album": result.get(
+                "album"
+            ),
+
+            "release_date": result.get(
+                "release_date"
+            ),
+
+            "spotify": result.get(
+                "spotify"
+            ),
+
+            "apple_music": result.get(
+                "apple_music"
+            )
         }
 
 
     except Exception as e:
-        logging.error(f"RESULT ERROR: {e}")
+
+        logging.error(
+            f"RESULT ERROR: {e}"
+        )
+
         return None
 
 
 
 def recognize_audio(paths):
 
+
     if isinstance(paths, str):
         paths = [paths]
 
 
-    paths = [
-        p for p in paths
-        if valid_audio(p)
-    ]
+    audios = []
 
 
-    if not paths:
+    for p in paths:
+
+        if valid_audio(p):
+
+            audios.append(p)
+
+
+
+    if not audios:
+
+        logging.info(
+            "NO VALID AUDIO"
+        )
+
         return None
 
 
-    # فایل‌های قوی‌تر اول
-    paths.sort(
+
+    # فایل‌های بزرگ‌تر اول
+
+    audios.sort(
         key=lambda x: os.path.getsize(x),
         reverse=True
     )
 
 
-    # سه دور کامل تست
-    for attempt in range(3):
 
-        for audio in paths:
+    for index, audio in enumerate(audios):
 
-            logging.info(
-                f"TRY {attempt+1}: {audio}"
+
+        logging.info(
+            f"TRY AUDIO {index+1}/{len(audios)} : {audio}"
+        )
+
+
+        for retry in range(2):
+
+            result = audd_request(
+                audio
             )
 
 
-            response = audd_request(audio)
-
-            song = extract_result(response)
+            song = extract_result(
+                result
+            )
 
 
             if song:
+
                 logging.info(
-                    f"FOUND: {song}"
+                    f"FOUND {song}"
                 )
+
                 return song
 
 
-            time.sleep(2)
+
+            time.sleep(1)
 
 
-        time.sleep(3)
 
+    logging.info(
+        "MUSIC NOT FOUND"
+    )
 
-    logging.info("NO RESULT")
 
     return None
