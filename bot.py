@@ -56,11 +56,47 @@ def process(chat_id, url):
     music = None
 
 
-    send_safe(
-        bot.send_message,
-        chat_id,
-        "⚡ در حال پردازش..."
+    links = build_links(result)
+
+
+keyboard = types.InlineKeyboardMarkup()
+
+
+keyboard.add(
+    types.InlineKeyboardButton(
+        "🔎 جستجوی آهنگ",
+        url=links["google"]
     )
+)
+
+
+keyboard.add(
+    types.InlineKeyboardButton(
+        "▶️ YouTube",
+        url=links["youtube"]
+    ),
+    types.InlineKeyboardButton(
+        "🎧 Spotify",
+        url=links["spotify"]
+    )
+)
+
+
+keyboard.add(
+    types.InlineKeyboardButton(
+        "🍎 Apple Music",
+        url=links["apple_music"]
+    )
+)
+
+
+
+send_safe(
+    bot.send_message,
+    chat_id,
+    f"🎵 {artist} - {title}",
+    reply_markup=keyboard
+)
 
 
     try:
