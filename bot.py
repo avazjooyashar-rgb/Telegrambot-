@@ -257,4 +257,4 @@ def handler(m):
 print("BOT RUNNING...")
 
 
-bot.infinity_poll
+bot.infinity_polling()
