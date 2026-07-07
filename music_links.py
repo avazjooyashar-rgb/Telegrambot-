@@ -1,7 +1,9 @@
 import urllib.parse
 
 
+
 def google_search(artist, title):
+
     query = f"{artist} {title}"
 
     return (
@@ -11,7 +13,10 @@ def google_search(artist, title):
 
 
 
+
+
 def youtube_search(artist, title):
+
     query = f"{artist} {title}"
 
     return (
@@ -21,7 +26,10 @@ def youtube_search(artist, title):
 
 
 
+
+
 def spotify_search(artist, title):
+
     query = f"{artist} {title}"
 
     return (
@@ -31,7 +39,10 @@ def spotify_search(artist, title):
 
 
 
+
+
 def apple_music_search(artist, title):
+
     query = f"{artist} {title}"
 
     return (
@@ -41,40 +52,72 @@ def apple_music_search(artist, title):
 
 
 
+
+
 def build_links(result):
 
     if not result:
-        return None
+
+        return {
+
+            "google": "#",
+
+            "youtube": "#",
+
+            "spotify": "#",
+
+            "apple_music": "#"
+
+        }
 
 
-    artist = result.get("artist")
-    title = result.get("title")
+
+    artist = result.get(
+        "artist",
+        ""
+    )
+
+
+    title = result.get(
+        "title",
+        ""
+    )
+
 
 
     return {
-        "google": google_search(
-            artist,
-            title
-        ),
 
-        "youtube": youtube_search(
-            artist,
-            title
-        ),
+        "google":
+            google_search(
+                artist,
+                title
+            ),
 
-        "spotify": (
-            result.get("spotify")
+
+        "youtube":
+            youtube_search(
+                artist,
+                title
+            ),
+
+
+        "spotify":
+            result.get(
+                "spotify"
+            )
             or spotify_search(
                 artist,
                 title
-            )
-        ),
+            ),
 
-        "apple_music": (
-            result.get("apple_music")
+
+        "apple_music":
+            result.get(
+                "apple_music"
+            )
             or apple_music_search(
                 artist,
                 title
             )
-        )
+
     }
