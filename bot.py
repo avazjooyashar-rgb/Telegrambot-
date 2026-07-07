@@ -1,15 +1,15 @@
-from music_links import build_links
 import os
-import telebot
 import traceback
 
+import telebot
 from telebot import types
-import urllib.parse
+
 from config import *
 from utils import RateLimiter, safe_remove
 from queue_manager import TaskQueue
 from downloader import download_instagram, extract_audio, download_music
 from recognizer import recognize_audio
+from music_links import build_links
 
 
 os.makedirs(BASE_DIR, exist_ok=True)
@@ -21,8 +21,9 @@ bot = telebot.TeleBot(
 )
 
 
-limiter = RateLimiter(RATE_LIMIT_SEC)
-
+limiter = RateLimiter(
+    RATE_LIMIT_SEC
+)
 
 
 def send_safe(func, *args, **kwargs):
@@ -49,6 +50,45 @@ def cleanup(files):
 
 
 
+def create_keyboard(result):
+
+    links = build_links(result)
+
+    keyboard = types.InlineKeyboardMarkup()
+
+
+    keyboard.add(
+        types.InlineKeyboardButton(
+            "🔎 جستجوی آهنگ",
+            url=links["google"]
+        )
+    )
+
+
+    keyboard.add(
+        types.InlineKeyboardButton(
+            "▶️ YouTube",
+            url=links["youtube"]
+        ),
+        types.InlineKeyboardButton(
+            "🎧 Spotify",
+            url=links["spotify"]
+        )
+    )
+
+
+    keyboard.add(
+        types.InlineKeyboardButton(
+            "🍎 Apple Music",
+            url=links["apple_music"]
+        )
+    )
+
+
+    return keyboard
+
+
+
 def process(chat_id, url):
 
     video = None
@@ -56,47 +96,11 @@ def process(chat_id, url):
     music = None
 
 
-    links = build_links(result)
-
-
-keyboard = types.InlineKeyboardMarkup()
-
-
-keyboard.add(
-    types.InlineKeyboardButton(
-        "🔎 جستجوی آهنگ",
-        url=links["google"]
+    send_safe(
+        bot.send_message,
+        chat_id,
+        "⚡ در حال پردازش..."
     )
-)
-
-
-keyboard.add(
-    types.InlineKeyboardButton(
-        "▶️ YouTube",
-        url=links["youtube"]
-    ),
-    types.InlineKeyboardButton(
-        "🎧 Spotify",
-        url=links["spotify"]
-    )
-)
-
-
-keyboard.add(
-    types.InlineKeyboardButton(
-        "🍎 Apple Music",
-        url=links["apple_music"]
-    )
-)
-
-
-
-send_safe(
-    bot.send_message,
-    chat_id,
-    f"🎵 {artist} - {title}",
-    reply_markup=keyboard
-)
 
 
     try:
@@ -107,14 +111,30 @@ send_safe(
         )
 
 
+        if not video:
+
+            return send_safe(
+                bot.send_message,
+                chat_id,
+                "❌ دانلود نشد"
+            )
+
+
         try:
+
             with open(video, "rb") as f:
+
                 bot.send_video(
                     chat_id,
                     f
                 )
-        except:
-            pass
+
+        except Exception as e:
+
+            print(
+                "VIDEO SEND:",
+                e
+            )
 
 
 
@@ -124,11 +144,13 @@ send_safe(
 
 
         if not audio:
+
             return send_safe(
                 bot.send_message,
                 chat_id,
                 "❌ صدا استخراج نشد"
             )
+
 
 
         result = recognize_audio(
@@ -137,6 +159,7 @@ send_safe(
 
 
         if not result:
+
             return send_safe(
                 bot.send_message,
                 chat_id,
@@ -144,10 +167,12 @@ send_safe(
             )
 
 
+
         artist = result.get(
             "artist",
             "Unknown"
         )
+
 
         title = result.get(
             "title",
@@ -155,11 +180,18 @@ send_safe(
         )
 
 
+        keyboard = create_keyboard(
+            result
+        )
+
+
         send_safe(
             bot.send_message,
             chat_id,
-            f"🎵 {artist} - {title}"
+            f"🎵 {artist} - {title}",
+            reply_markup=keyboard
         )
+
 
 
         music = download_music(
@@ -170,17 +202,11 @@ send_safe(
 
         if music:
 
-            try:
-                with open(music, "rb") as f:
-                    bot.send_audio(
-                        chat_id,
-                        f
-                    )
+            with open(music, "rb") as f:
 
-            except Exception as e:
-                print(
-                    "AUDIO SEND ERROR:",
-                    e
+                bot.send_audio(
+                    chat_id,
+                    f
                 )
 
 
@@ -189,6 +215,7 @@ send_safe(
         print(
             traceback.format_exc()
         )
+
 
         send_safe(
             bot.send_message,
@@ -232,17 +259,21 @@ def handler(m):
     if not limiter.allow(
         m.from_user.id
     ):
+
         return bot.send_message(
             m.chat.id,
             "⛔ slow down"
         )
 
 
+
     if "http" not in m.text:
+
         return bot.send_message(
             m.chat.id,
-            "📎 فقط لینک اینستا بفرست"
+            "📎 فقط لینک بفرست"
         )
+
 
 
     queue.add(
