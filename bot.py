@@ -1,3 +1,4 @@
+from music_links import build_links
 import os
 import telebot
 import traceback
