@@ -1,8 +1,8 @@
 import os
 import uuid
 import subprocess
-import yt_dlp
 import logging
+import yt_dlp
 
 
 logging.basicConfig(
@@ -42,15 +42,12 @@ def download_instagram(url, base_dir):
 
         "no_warnings": True,
 
-        "retries": 15,
+        "retries": 10,
 
-        "fragment_retries": 15,
+        "fragment_retries": 10,
 
-        "socket_timeout": 60,
-
-        "concurrent_fragment_downloads": 5
+        "socket_timeout": 60
     }
-
 
 
     try:
@@ -75,7 +72,7 @@ def download_instagram(url, base_dir):
     except Exception as e:
 
         logging.error(
-            f"DOWNLOAD ERROR: {e}"
+            f"INSTAGRAM DOWNLOAD ERROR: {e}"
         )
 
 
@@ -90,6 +87,7 @@ def get_duration(path):
     try:
 
         result = subprocess.run(
+
             [
                 "ffprobe",
                 "-v",
@@ -127,120 +125,58 @@ def extract_audio(video_path):
     )[0]
 
 
-    duration = get_duration(
-        video_path
+    audio_file = (
+        base +
+        "_clip.wav"
     )
 
 
-    segment = 25
+    try:
 
+        subprocess.run(
 
-    points = [0]
+            [
+                "ffmpeg",
+                "-y",
 
+                "-i",
+                video_path,
 
-    if duration > segment:
+                "-vn",
 
-        step = max(
-            20,
-            duration / 6
+                "-ac",
+                "1",
+
+                "-ar",
+                "44100",
+
+                "-c:a",
+                "pcm_s16le",
+
+                audio_file
+            ],
+
+            stdout=subprocess.DEVNULL,
+
+            stderr=subprocess.DEVNULL
         )
 
 
-        current = 0
+        if os.path.exists(audio_file):
 
-        while current < duration:
-
-            points.append(
-                int(current)
-            )
-
-            current += step
+            return [
+                audio_file
+            ]
 
 
+    except Exception as e:
 
-    points.append(
-        max(
-            0,
-            int(duration - segment)
-        )
-    )
-
-
-    points = sorted(
-        set(points)
-    )
-
-
-    files = []
-
-
-    for index, start in enumerate(points):
-
-        audio = (
-            f"{base}_music_{index}.wav"
+        logging.error(
+            f"AUDIO ERROR: {e}"
         )
 
 
-        try:
-
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-
-                    "-ss",
-                    str(start),
-
-                    "-i",
-                    video_path,
-
-                    "-t",
-                    str(segment),
-
-                    "-vn",
-
-                    "-ac",
-                    "1",
-
-                    "-ar",
-                    "44100",
-
-                    "-af",
-                    "highpass=f=80,lowpass=f=8000,afftdn,loudnorm,silenceremove=start_periods=1:start_silence=0.3:start_threshold=-45dB",
-
-                    "-c:a",
-                    "pcm_s16le",
-
-                    audio
-                ],
-
-                stdout=subprocess.DEVNULL,
-
-                stderr=subprocess.DEVNULL
-            )
-
-
-
-            if (
-                os.path.exists(audio)
-                and os.path.getsize(audio) > 20000
-            ):
-
-                files.append(
-                    audio
-                )
-
-
-
-        except Exception as e:
-
-            logging.error(
-                f"AUDIO ERROR: {e}"
-            )
-
-
-
-    return files
+    return None
 
 
 
@@ -259,26 +195,38 @@ def download_music(query, base_dir):
 
     output = os.path.join(
         base_dir,
-        f"{uid}.mp3"
+        f"{uid}.%(ext)s"
     )
 
 
     options = {
 
-        "format": "bestaudio/best",
-
         "outtmpl": output,
 
-        "quiet": True,
+        "format": "bestaudio/best",
 
         "noplaylist": True,
 
+        "quiet": True,
+
+        "no_warnings": True,
+
+        "default_search": "ytsearch1",
+
         "postprocessors": [
+
             {
+
                 "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3"
+
+                "preferredcodec": "mp3",
+
+                "preferredquality": "192"
+
             }
+
         ]
+
     }
 
 
@@ -294,6 +242,21 @@ def download_music(query, base_dir):
             )
 
 
-        for f in os.listdir(base_dir):
+        for file in os.listdir(base_dir):
 
-            if f.startswith
+            if file.startswith(uid):
+
+                return os.path.join(
+                    base_dir,
+                    file
+                )
+
+
+    except Exception as e:
+
+        logging.error(
+            f"MUSIC DOWNLOAD ERROR: {e}"
+        )
+
+
+    return None
