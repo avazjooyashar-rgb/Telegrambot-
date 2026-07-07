@@ -230,7 +230,7 @@ def extract_audio(video_path):
                     "44100",
 
                     "-af",
-                    "loudnorm",
+                    "highpass=f=80,lowpass=f=8000,afftdn,loudnorm,silenceremove=start_periods=1:start_silence=0.3:start_threshold=-45dB"
 
                     "-c:a",
                     "pcm_s16le",
