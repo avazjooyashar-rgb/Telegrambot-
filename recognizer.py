@@ -307,4 +307,5 @@ def recognize_audio(paths):
 
             result = parse(
                 task.result()
+            )
            
