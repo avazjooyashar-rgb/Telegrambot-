@@ -1,78 +1,329 @@
 import os
-import uuid
-import subprocess
+import json
+import hashlib
 import logging
-import yt_dlp
+import requests
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from config import (
+    AUDD_API,
+    ACR_HOST,
+    ACR_ACCESS_KEY,
+    ACR_ACCESS_SECRET
+)
+
+from audio_processor import prepare_audio
+
+from database import (
+    get_song,
+    save_song
+)
 
 
 logging.basicConfig(
-    filename="downloader.log",
+    filename="recognizer.log",
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 
 
-
-def download_instagram(url, base_dir):
-
-    os.makedirs(
-        base_dir,
-        exist_ok=True
-    )
-
-    uid = str(uuid.uuid4())
-
-    output = os.path.join(
-        base_dir,
-        f"{uid}.%(ext)s"
-    )
+AUDD_URL = "https://api.audd.io/"
+CACHE_FILE = "music_cache.json"
 
 
-    options = {
 
-        "outtmpl": output,
+def load_cache():
 
-        "format": "bv*+ba/best",
+    try:
+        if os.path.exists(CACHE_FILE):
 
-        "merge_output_format": "mp4",
+            with open(
+                CACHE_FILE,
+                "r",
+                encoding="utf-8"
+            ) as f:
 
-        "noplaylist": True,
+                return json.load(f)
 
-        "quiet": True,
+    except Exception as e:
+        logging.error(e)
 
-        "no_warnings": True,
+    return {}
 
-        "retries": 10,
 
-        "fragment_retries": 10,
 
-        "socket_timeout": 60
-    }
 
+def save_cache(data):
 
     try:
 
-        with yt_dlp.YoutubeDL(options) as ydl:
+        with open(
+            CACHE_FILE,
+            "w",
+            encoding="utf-8"
+        ) as f:
 
-            ydl.download(
-                [url]
+            json.dump(
+                data,
+                f,
+                ensure_ascii=False,
+                indent=2
             )
 
+    except Exception as e:
+        logging.error(e)
 
-        for file in os.listdir(base_dir):
 
-            if file.startswith(uid):
 
-                return os.path.join(
-                    base_dir,
-                    file
-                )
+
+def file_hash(path):
+
+    try:
+
+        h = hashlib.md5()
+
+        with open(
+            path,
+            "rb"
+        ) as f:
+
+            for chunk in iter(
+                lambda: f.read(4096),
+                b""
+            ):
+
+                h.update(chunk)
+
+        return h.hexdigest()
+
+    except Exception:
+
+        return None
+
+
+
+
+def valid_audio(path):
+
+    return (
+        path
+        and os.path.exists(path)
+        and os.path.getsize(path) > 10000
+    )
+
+
+
+
+def acr_request(path):
+
+    try:
+
+        from pyacrcloud import ACRCloudRecognizer
+
+
+        config = {
+
+            "host": ACR_HOST,
+
+            "access_key": ACR_ACCESS_KEY,
+
+            "access_secret": ACR_ACCESS_SECRET,
+
+            "timeout": 10
+
+        }
+
+
+        acr = ACRCloudRecognizer(config)
+
+
+        response = acr.recognize_by_file(
+            path,
+            0
+        )
+
+
+        return json.loads(response)
 
 
     except Exception as e:
 
         logging.error(
-            f"INSTAGRAM DOWNLOAD ERROR: {e}"
+            f"ACR ERROR {e}"
+        )
+
+
+    return None
+
+
+
+
+def audd_request(path):
+
+    try:
+
+        with open(
+            path,
+            "rb"
+        ) as audio:
+
+            response = requests.post(
+
+                AUDD_URL,
+
+                data={
+
+                    "api_token": AUDD_API,
+
+                    "return":
+                    "spotify,apple_music"
+
+                },
+
+                files={
+
+                    "file": audio
+
+                },
+
+                timeout=20
+            )
+
+
+        if response.status_code == 200:
+
+            return response.json()
+
+
+    except Exception as e:
+
+        logging.error(
+            f"AUDD ERROR {e}"
+        )
+
+
+    return None
+    def parse(data):
+
+    try:
+
+        if not data:
+            return None
+
+
+        # ACRCloud format
+        if "status" in data:
+
+            metadata = data.get(
+                "metadata",
+                {}
+            )
+
+
+            music = metadata.get(
+                "music"
+            )
+
+
+            if music:
+
+                item = music[0]
+
+
+                artist = ""
+
+                title = ""
+
+
+                artists = item.get(
+                    "artists",
+                    []
+                )
+
+
+                if artists:
+
+                    artist = artists[0].get(
+                        "name",
+                        ""
+                    )
+
+
+                title = item.get(
+                    "title",
+                    ""
+                )
+
+
+                if artist and title:
+
+                    return {
+
+                        "artist": artist,
+
+                        "title": title,
+
+                        "album": item.get(
+                            "album",
+                            {}
+                        ).get(
+                            "name"
+                        ),
+
+                        "spotify": None,
+
+                        "apple_music": None
+
+                    }
+
+
+
+        # AudD format
+        result = data.get(
+            "result"
+        )
+
+
+        if result:
+
+            artist = result.get(
+                "artist"
+            )
+
+
+            title = result.get(
+                "title"
+            )
+
+
+            if artist and title:
+
+                return {
+
+                    "artist": artist,
+
+                    "title": title,
+
+                    "album": result.get(
+                        "album"
+                    ),
+
+                    "spotify": result.get(
+                        "spotify"
+                    ),
+
+                    "apple_music": result.get(
+                        "apple_music"
+                    )
+
+                }
+
+
+    except Exception as e:
+
+        logging.error(
+            f"PARSE ERROR {e}"
         )
 
 
@@ -82,181 +333,197 @@ def download_instagram(url, base_dir):
 
 
 
-def get_duration(path):
+def recognize_audio(paths):
 
-    try:
 
-        result = subprocess.run(
+    if isinstance(
+        paths,
+        str
+    ):
 
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                path
-            ],
+        paths = [paths]
 
-            capture_output=True,
-            text=True
+
+
+    processed = []
+
+
+
+    for item in paths:
+
+
+        ready = prepare_audio(
+            item
         )
 
 
-        return float(
-            result.stdout.strip()
-        )
+        if valid_audio(
+            ready
+        ):
 
-
-    except:
-
-        return 60
-
-
-
-
-
-def extract_audio(video_path):
-
-    base = video_path.rsplit(
-        ".",
-        1
-    )[0]
-
-
-    audio_file = (
-        base +
-        "_clip.wav"
-    )
-
-
-    try:
-
-        subprocess.run(
-
-            [
-                "ffmpeg",
-                "-y",
-
-                "-i",
-                video_path,
-
-                "-vn",
-
-                "-ac",
-                "1",
-
-                "-ar",
-                "44100",
-
-                "-c:a",
-                "pcm_s16le",
-
-                audio_file
-            ],
-
-            stdout=subprocess.DEVNULL,
-
-            stderr=subprocess.DEVNULL
-        )
-
-
-        if os.path.exists(audio_file):
-
-            return [
-                audio_file
-            ]
-
-
-    except Exception as e:
-
-        logging.error(
-            f"AUDIO ERROR: {e}"
-        )
-
-
-    return None
-
-
-
-
-
-def download_music(query, base_dir):
-
-    os.makedirs(
-        base_dir,
-        exist_ok=True
-    )
-
-
-    uid = str(uuid.uuid4())
-
-
-    output = os.path.join(
-        base_dir,
-        f"{uid}.%(ext)s"
-    )
-
-
-    options = {
-
-        "outtmpl": output,
-
-        "format": "bestaudio/best",
-
-        "noplaylist": True,
-
-        "quiet": True,
-
-        "no_warnings": True,
-
-        "default_search": "ytsearch1",
-
-        "postprocessors": [
-
-            {
-
-                "key": "FFmpegExtractAudio",
-
-                "preferredcodec": "mp3",
-
-                "preferredquality": "192"
-
-            }
-
-        ]
-
-    }
-
-
-
-    try:
-
-        with yt_dlp.YoutubeDL(options) as ydl:
-
-            ydl.download(
-                [
-                    f"ytsearch1:{query}"
-                ]
+            processed.append(
+                ready
             )
 
 
-        for file in os.listdir(base_dir):
 
-            if file.startswith(uid):
+    if not processed:
 
-                return os.path.join(
-                    base_dir,
-                    file
-                )
+        return None
 
 
-    except Exception as e:
 
-        logging.error(
-            f"MUSIC DOWNLOAD ERROR: {e}"
+    cache = load_cache()
+
+
+
+    for file in processed:
+
+
+        h = file_hash(
+            file
         )
+
+
+        if not h:
+            continue
+
+
+
+        # database check
+
+        db_result = get_song(
+            h
+        )
+
+
+        if db_result:
+
+            logging.info(
+                "DATABASE HIT"
+            )
+
+            return db_result
+
+
+
+
+        # old json cache
+
+        if h in cache:
+
+            logging.info(
+                "CACHE HIT"
+            )
+
+            return cache[h]
+
+
+
+
+
+    # first ACRCloud
+
+    for file in processed:
+
+
+        logging.info(
+            "TRY ACR"
+        )
+
+
+        result = parse(
+            acr_request(file)
+        )
+
+
+        if result:
+
+
+            h = file_hash(
+                file
+            )
+
+
+            result["hash"] = h
+
+
+            save_song(
+                result
+            )
+
+
+            cache[h] = result
+
+
+            save_cache(
+                cache
+            )
+
+
+            logging.info(
+                "ACR SUCCESS"
+            )
+
+
+            return result
+
+
+
+
+
+    # fallback AudD
+
+    for file in processed:
+
+
+        logging.info(
+            "TRY AUDD"
+        )
+
+
+        result = parse(
+            audd_request(file)
+        )
+
+
+        if result:
+
+
+            h = file_hash(
+                file
+            )
+
+
+            result["hash"] = h
+
+
+            save_song(
+                result
+            )
+
+
+            cache[h] = result
+
+
+            save_cache(
+                cache
+            )
+
+
+            logging.info(
+                "AUDD SUCCESS"
+            )
+
+
+            return result
+
+
+
+
+    logging.info(
+        "NO RESULT"
+    )
 
 
     return None
