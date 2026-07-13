@@ -6,8 +6,19 @@ import requests
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import AUDD_API
+from config import (
+    AUDD_API,
+    ACR_HOST,
+    ACR_ACCESS_KEY,
+    ACR_ACCESS_SECRET
+)
+
 from audio_processor import prepare_audio
+
+from database import (
+    get_song,
+    save_song
+)
 
 
 logging.basicConfig(
@@ -25,7 +36,6 @@ CACHE_FILE = "music_cache.json"
 def load_cache():
 
     try:
-
         if os.path.exists(CACHE_FILE):
 
             with open(
@@ -37,12 +47,9 @@ def load_cache():
                 return json.load(f)
 
     except Exception as e:
-
         logging.error(e)
 
-
     return {}
-
 
 
 
@@ -64,11 +71,8 @@ def save_cache(data):
                 indent=2
             )
 
-
     except Exception as e:
-
         logging.error(e)
-
 
 
 
@@ -79,7 +83,10 @@ def file_hash(path):
 
         h = hashlib.md5()
 
-        with open(path, "rb") as f:
+        with open(
+            path,
+            "rb"
+        ) as f:
 
             for chunk in iter(
                 lambda: f.read(4096),
@@ -88,14 +95,11 @@ def file_hash(path):
 
                 h.update(chunk)
 
-
         return h.hexdigest()
 
-
-    except:
+    except Exception:
 
         return None
-
 
 
 
@@ -111,24 +115,76 @@ def valid_audio(path):
 
 
 
+def acr_request(path):
+
+    try:
+
+        from pyacrcloud import ACRCloudRecognizer
+
+
+        config = {
+
+            "host": ACR_HOST,
+
+            "access_key": ACR_ACCESS_KEY,
+
+            "access_secret": ACR_ACCESS_SECRET,
+
+            "timeout": 10
+
+        }
+
+
+        acr = ACRCloudRecognizer(config)
+
+
+        response = acr.recognize_by_file(
+            path,
+            0
+        )
+
+
+        return json.loads(response)
+
+
+    except Exception as e:
+
+        logging.error(
+            f"ACR ERROR {e}"
+        )
+
+
+    return None
+
+
+
 
 def audd_request(path):
 
     try:
 
-        with open(path, "rb") as audio:
+        with open(
+            path,
+            "rb"
+        ) as audio:
 
             response = requests.post(
 
                 AUDD_URL,
 
                 data={
+
                     "api_token": AUDD_API,
-                    "return": "spotify,apple_music"
+
+                    "return":
+                    "spotify,apple_music"
+
                 },
 
                 files={
+
                     "file": audio
+
                 },
 
                 timeout=20
@@ -148,12 +204,7 @@ def audd_request(path):
 
 
     return None
-
-
-
-
-
-def parse(data):
+    def parse(data):
 
     try:
 
@@ -161,49 +212,119 @@ def parse(data):
             return None
 
 
+        # ACRCloud format
+        if "status" in data:
+
+            metadata = data.get(
+                "metadata",
+                {}
+            )
+
+
+            music = metadata.get(
+                "music"
+            )
+
+
+            if music:
+
+                item = music[0]
+
+
+                artist = ""
+
+                title = ""
+
+
+                artists = item.get(
+                    "artists",
+                    []
+                )
+
+
+                if artists:
+
+                    artist = artists[0].get(
+                        "name",
+                        ""
+                    )
+
+
+                title = item.get(
+                    "title",
+                    ""
+                )
+
+
+                if artist and title:
+
+                    return {
+
+                        "artist": artist,
+
+                        "title": title,
+
+                        "album": item.get(
+                            "album",
+                            {}
+                        ).get(
+                            "name"
+                        ),
+
+                        "spotify": None,
+
+                        "apple_music": None
+
+                    }
+
+
+
+        # AudD format
         result = data.get(
             "result"
         )
 
 
-        if not result:
-            return None
+        if result:
+
+            artist = result.get(
+                "artist"
+            )
 
 
-        artist = result.get(
-            "artist"
-        )
-
-        title = result.get(
-            "title"
-        )
+            title = result.get(
+                "title"
+            )
 
 
-        if artist and title:
+            if artist and title:
 
-            return {
+                return {
 
-                "artist": artist,
+                    "artist": artist,
 
-                "title": title,
+                    "title": title,
 
-                "album": result.get(
-                    "album"
-                ),
+                    "album": result.get(
+                        "album"
+                    ),
 
-                "spotify": result.get(
-                    "spotify"
-                ),
+                    "spotify": result.get(
+                        "spotify"
+                    ),
 
-                "apple_music": result.get(
-                    "apple_music"
-                )
-            }
+                    "apple_music": result.get(
+                        "apple_music"
+                    )
+
+                }
 
 
     except Exception as e:
 
-        logging.error(e)
+        logging.error(
+            f"PARSE ERROR {e}"
+        )
 
 
     return None
@@ -225,6 +346,7 @@ def recognize_audio(paths):
 
 
     processed = []
+
 
 
     for item in paths:
@@ -263,7 +385,32 @@ def recognize_audio(paths):
         )
 
 
-        if h and h in cache:
+        if not h:
+            continue
+
+
+
+        # database check
+
+        db_result = get_song(
+            h
+        )
+
+
+        if db_result:
+
+            logging.info(
+                "DATABASE HIT"
+            )
+
+            return db_result
+
+
+
+
+        # old json cache
+
+        if h in cache:
 
             logging.info(
                 "CACHE HIT"
@@ -275,37 +422,108 @@ def recognize_audio(paths):
 
 
 
-    with ThreadPoolExecutor(
-        max_workers=min(
-            3,
-            len(processed)
+    # first ACRCloud
+
+    for file in processed:
+
+
+        logging.info(
+            "TRY ACR"
         )
-    ) as executor:
 
 
+        result = parse(
+            acr_request(file)
+        )
 
-        tasks = {
+
+        if result:
 
 
-            executor.submit(
-                audd_request,
+            h = file_hash(
                 file
-            ): file
-
-
-            for file in processed
-
-        }
-
-
-
-        for task in as_completed(tasks):
-
-
-            source = tasks[task]
-
-
-            result = parse(
-                task.result()
             )
-           
+
+
+            result["hash"] = h
+
+
+            save_song(
+                result
+            )
+
+
+            cache[h] = result
+
+
+            save_cache(
+                cache
+            )
+
+
+            logging.info(
+                "ACR SUCCESS"
+            )
+
+
+            return result
+
+
+
+
+
+    # fallback AudD
+
+    for file in processed:
+
+
+        logging.info(
+            "TRY AUDD"
+        )
+
+
+        result = parse(
+            audd_request(file)
+        )
+
+
+        if result:
+
+
+            h = file_hash(
+                file
+            )
+
+
+            result["hash"] = h
+
+
+            save_song(
+                result
+            )
+
+
+            cache[h] = result
+
+
+            save_cache(
+                cache
+            )
+
+
+            logging.info(
+                "AUDD SUCCESS"
+            )
+
+
+            return result
+
+
+
+
+    logging.info(
+        "NO RESULT"
+    )
+
+
+    return None
